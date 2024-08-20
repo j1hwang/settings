@@ -1,0 +1,52 @@
+#!/usr/bin/env ruby
+def run_and_echo(cmd)
+  puts cmd
+  result = system(cmd)
+  raise "FAIL - `#{cmd}`" unless result
+end
+
+max_steps = ARGV[0].to_i
+
+begin
+  branches = `git branch`.split("\n").map(&:strip)
+  selected_branch_idx = branches.index { |b| b.start_with?('* ') }
+  raise 'No branch selected!' unless selected_branch_idx
+
+  selected_branch = branches[selected_branch_idx][2..-1]
+  hit = selected_branch.match(
+    %r{^(?<branch_prefix>(feature|hotfix)/[a-z\-]+)(?<branch_no>\d\d)}
+  )
+  raise "#{selected_branch} is not a chained branch" unless hit
+
+  branch_prefix = hit[:branch_prefix]
+  branch_no = hit[:branch_no].to_i
+
+  previous_branch = selected_branch
+  current_branch_no = branch_no
+
+  # mod
+  run_and_echo("git push -f origin #{previous_branch}")
+
+  steps = 0
+  (selected_branch_idx + 1...branches.size).each do |i|
+    current_branch_no += 1
+    current_branch = branches[i]
+    current_branch_prefix = format("#{branch_prefix}%02i", current_branch_no)
+    break unless current_branch.start_with?(current_branch_prefix)
+
+    run_and_echo(
+      'git rebase ' \
+      "--onto #{previous_branch} #{current_branch}~1 #{current_branch}"
+    )
+    run_and_echo("git push -f origin #{current_branch}")
+    # run_and_echo("git push -f")
+
+    steps += 1
+    break if steps == max_steps
+
+    previous_branch = current_branch
+  end
+rescue StandardError => e
+  STDERR.puts "\033[31m#{e}\033[0m"
+  exit 1
+end
